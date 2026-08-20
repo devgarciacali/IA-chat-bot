@@ -36,6 +36,12 @@ const conversations = new Map();
 const autoReplyLog = new Map();
 const sentByBot = new Set();
 const botStartedAtSeconds = Math.floor(Date.now() / 1000);
+const debugLogPath = path.join(process.cwd(), 'debug.log');
+
+async function debugLog(line) {
+  console.log(line);
+  await fs.appendFile(debugLogPath, `${line}\n`, 'utf8').catch(() => {});
+}
 
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'codex-bot' }),
@@ -63,18 +69,23 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
   config.myNumber = client.info?.wid?._serialized;
   console.log(`${config.botName} listo. Escribe texto o manda audio por WhatsApp.`);
+  console.log(`Mi numero: ${config.myNumber}`);
   console.log(`Modelo de chat: ${config.chatModel}`);
   console.log(`Modelo de audio: ${config.audioModel}`);
   console.log(`Chats permitidos: ${config.allowedChats.join(', ') || 'todos'}`);
 });
 
-client.on('message', async (message) => {
+async function handleIncomingMessage(message) {
   try {
-    const isSelfChat = config.myNumber && message.from === config.myNumber;
+    const isSelfChat = message.fromMe && isOwnChat(message);
 
-    console.log(
-      `[DEBUG] from=${message.from} fromMe=${message.fromMe} myNumber=${config.myNumber} isSelfChat=${isSelfChat} id=${message.id?.id}`
+    await debugLog(
+      `[DEBUG] from=${message.from} to=${message.to} fromMe=${message.fromMe} myNumber=${config.myNumber} myLid=${config.myLid} isSelfChat=${isSelfChat} id=${message.id?.id} body=${message.body}`
     );
+
+    if (isSelfChat) {
+      config.myLid = config.myLid || message.from;
+    }
 
     if (message.fromMe && (!isSelfChat || sentByBot.has(message.id?.id))) {
       return;
@@ -105,7 +116,10 @@ client.on('message', async (message) => {
     console.error('Error procesando mensaje:', readableError(error));
     await sendReply(message, 'Tuve un error procesando el mensaje. Revisa la terminal para ver el detalle.');
   }
-});
+}
+
+client.on('message', handleIncomingMessage);
+client.on('message_create', handleIncomingMessage);
 
 function env(name, fallback = '') {
   return process.env[name]?.trim() || fallback;
@@ -118,7 +132,20 @@ function parseList(value) {
     .filter(Boolean);
 }
 
+function isOwnChat(message) {
+  if (message.from === config.myNumber) {
+    return true;
+  }
+  if (config.myLid && message.from === config.myLid) {
+    return true;
+  }
+  return message.fromMe && message.from.endsWith('@lid');
+}
+
 function isAllowed(chatId) {
+  if (chatId === config.myNumber || chatId === config.myLid) {
+    return true;
+  }
   return config.allowedChats.length === 0 || config.allowedChats.includes(chatId);
 }
 
