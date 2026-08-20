@@ -20,6 +20,8 @@ const config = {
   autoReplyEnabled: env('AUTO_REPLY_ENABLED', 'true').toLowerCase() === 'true',
   autoReplyMessage: env('AUTO_REPLY_MESSAGE', 'Un momento, el mane no esta en linea, pero en un momento te responde.'),
   autoReplyCooldownMs: Number(env('AUTO_REPLY_COOLDOWN_MINUTES', '30')) * 60 * 1000,
+  typingDelayMs: Number(env('TYPING_DELAY_MS', '100')),
+  boldReplies: env('BOLD_REPLIES', 'true').toLowerCase() !== 'false',
   personality: env(
     'BOT_PERSONALITY',
     'Eres cercano, claro y practico. Conversas como asistente personal de confianza en español.'
@@ -227,20 +229,129 @@ function trimHistory(history) {
 }
 
 async function sendReply(message, text) {
+  const formatted = config.boldReplies ? formatBold(text) : text;
+
   try {
-    const sent = await message.reply(text);
+    const typed = await typeReplyWithEffect(message, formatted);
+    if (typed) {
+      console.log('Respuesta enviada con efecto de escritura.');
+      return;
+    }
+  } catch (typingError) {
+    console.error('Fallo efecto de escritura; usando message.reply():', readableError(typingError));
+  }
+
+  try {
+    const sent = await message.reply(formatted);
     if (sent?.id?.id) {
       sentByBot.add(sent.id.id);
     }
     console.log('Respuesta enviada con message.reply().');
   } catch (replyError) {
     console.error('Fallo message.reply(); intentando client.sendMessage():', readableError(replyError));
-    const sent = await client.sendMessage(message.from, text);
+    const sent = await client.sendMessage(message.from, formatted);
     if (sent?.id?.id) {
       sentByBot.add(sent.id.id);
     }
     console.log('Respuesta enviada con client.sendMessage().');
   }
+}
+
+function formatBold(text) {
+  const clean = text.replace(/\*/g, '');
+  return `*${clean}*`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function typeReplyWithEffect(message, text) {
+  const page = client.pupPage;
+  if (!page || config.typingDelayMs <= 0) {
+    return false;
+  }
+
+  const opened = await openChatInUI(message.from);
+  if (!opened) {
+    console.log('No se pudo abrir el chat en la interfaz; sin efecto de escritura.');
+    return false;
+  }
+
+  await sleep(600);
+
+  const focused = await page.evaluate(() => {
+    const input = document.querySelector('div[contenteditable="true"][data-tab="10"]');
+    if (!input) {
+      return false;
+    }
+    input.focus();
+    return true;
+  });
+
+  if (!focused) {
+    return false;
+  }
+
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) {
+      await page.keyboard.down('Shift');
+      await page.keyboard.press('Enter');
+      await page.keyboard.up('Shift');
+      await sleep(config.typingDelayMs * 10);
+    }
+    await page.keyboard.type(lines[i], { delay: config.typingDelayMs });
+  }
+
+  await page.keyboard.press('Enter');
+  await sleep(500);
+
+  try {
+    const chat = await client.getChatById(message.from);
+    const messages = await chat.fetchMessages({ limit: 1 });
+    if (messages[0]?.id?.id) {
+      sentByBot.add(messages[0].id.id);
+    }
+  } catch {
+    // sin registro del id enviado; message_create lo ignorara por ser ajeno al self-chat
+  }
+
+  return true;
+}
+
+async function openChatInUI(chatId) {
+  const page = client.pupPage;
+  if (!page) {
+    return false;
+  }
+
+  return page.evaluate(async (chatId) => {
+    try {
+      const wid = window.require('WAWebWidFactory').createWid(chatId);
+      const chat = window.require('WAWebCollections').Chat.get(wid);
+      if (chat && typeof chat.open === 'function') {
+        chat.open();
+        return true;
+      }
+    } catch (error) {
+      // sigue al fallback de click
+    }
+
+    try {
+      const rows = document.querySelectorAll('div[data-id]');
+      for (const row of rows) {
+        if (row.getAttribute('data-id') === chatId) {
+          row.click();
+          return true;
+        }
+      }
+    } catch (error) {
+      // sigue al fallback final
+    }
+
+    return false;
+  }, chatId);
 }
 
 async function readIncomingText(message) {
