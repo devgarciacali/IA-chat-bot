@@ -11,14 +11,14 @@ const { Client, LocalAuth } = pkg;
 
 const config = {
   botName: env('BOT_NAME', 'Codex'),
-  userName: env('USER_NAME', 'Jose'),
+  userName: env('USER_NAME', 'Mane'),
   groqApiKey: env('GROQ_API_KEY'),
   chatModel: env('GROQ_MODEL', 'groq/compound-mini'),
   audioModel: env('GROQ_AUDIO_MODEL', 'whisper-large-v3-turbo'),
   allowedChats: parseList(process.env.ALLOWED_CHATS || process.env.ALLOWED_NUMBER),
   maxHistoryMessages: Number(env('MAX_HISTORY_MESSAGES', '12')),
   autoReplyEnabled: env('AUTO_REPLY_ENABLED', 'true').toLowerCase() === 'true',
-  autoReplyMessage: env('AUTO_REPLY_MESSAGE', 'Un momento, el master no esta en linea, pero en un momento te responde.'),
+  autoReplyMessage: env('AUTO_REPLY_MESSAGE', 'Un momento, el mane no esta en linea, pero en un momento te responde.'),
   autoReplyCooldownMs: Number(env('AUTO_REPLY_COOLDOWN_MINUTES', '30')) * 60 * 1000,
   personality: env(
     'BOT_PERSONALITY',
