@@ -34,6 +34,7 @@ if (!config.groqApiKey) {
 const groq = new Groq({ apiKey: config.groqApiKey });
 const conversations = new Map();
 const autoReplyLog = new Map();
+const sentByBot = new Set();
 const botStartedAtSeconds = Math.floor(Date.now() / 1000);
 
 const client = new Client({
@@ -60,6 +61,7 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', () => {
+  config.myNumber = client.info?.wid?._serialized;
   console.log(`${config.botName} listo. Escribe texto o manda audio por WhatsApp.`);
   console.log(`Modelo de chat: ${config.chatModel}`);
   console.log(`Modelo de audio: ${config.audioModel}`);
@@ -68,7 +70,13 @@ client.on('ready', () => {
 
 client.on('message', async (message) => {
   try {
-    if (message.fromMe) {
+    const isSelfChat = config.myNumber && message.from === config.myNumber;
+
+    console.log(
+      `[DEBUG] from=${message.from} fromMe=${message.fromMe} myNumber=${config.myNumber} isSelfChat=${isSelfChat} id=${message.id?.id}`
+    );
+
+    if (message.fromMe && (!isSelfChat || sentByBot.has(message.id?.id))) {
       return;
     }
 
@@ -193,11 +201,17 @@ function trimHistory(history) {
 
 async function sendReply(message, text) {
   try {
-    await message.reply(text);
+    const sent = await message.reply(text);
+    if (sent?.id?.id) {
+      sentByBot.add(sent.id.id);
+    }
     console.log('Respuesta enviada con message.reply().');
   } catch (replyError) {
     console.error('Fallo message.reply(); intentando client.sendMessage():', readableError(replyError));
-    await client.sendMessage(message.from, text);
+    const sent = await client.sendMessage(message.from, text);
+    if (sent?.id?.id) {
+      sentByBot.add(sent.id.id);
+    }
     console.log('Respuesta enviada con client.sendMessage().');
   }
 }
